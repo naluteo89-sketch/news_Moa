@@ -248,6 +248,16 @@
     .legend i { width:10px; height:10px; border-radius:50%; display:inline-block; }
     .legend b { color:var(--ink); }
     .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
+    .chips-title { font-size:11px; color:var(--muted); margin-top:14px; }
+    .chips-title + .chips { margin-top:6px; }
+
+    /* ---------- AI 판정 표시 (이 페이지 기사 분위기 패널) ---------- */
+    .ai-tag { display:inline-block; font-size:10px; font-weight:800; letter-spacing:.03em; line-height:1; padding:3px 5px; border-radius:4px;
+      color:#fff; background:linear-gradient(135deg, #7c3aed, #2563eb); vertical-align:1px; }
+    .mood-source { font-size:11.5px; color:var(--ink2); margin:-2px 0 10px; display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+    .muted-note { color:var(--muted); }
+    .mood-source .line { flex-basis:100%; }
+    .ai-note { font-size:11.5px; color:var(--muted); margin-top:10px; line-height:1.5; }
     .chip { font-size:12px; padding:3px 9px; border-radius:999px; }
     .chip.p { background:var(--pos-soft); color:var(--pos-ink); }
     .chip.n { background:var(--neg-soft); color:var(--neg-ink); }
@@ -602,6 +612,12 @@
     {% if result %}
     <section class="panel" id="mood">
       <p class="side-title"><span>이 페이지 기사 분위기</span><span class="mood-progress" id="moodProgress">분석 중…</span></p>
+      <p class="mood-source" id="moodSource">
+        {% if ai_on %}<span class="ai-tag">AI</span> {{ ai_model }} 판정
+        <span class="muted-note line">제목·요약 기준 · 긍정 35~65%는 중립</span>
+        {% else %}감성사전 판정 <span class="muted-note">(AI 키 없음)</span>
+        <span class="muted-note line">긍정 35~65%는 중립</span>{% endif %}
+      </p>
       <div class="mood-bar" id="moodBar" aria-hidden="true"></div>
       <div class="mood-tabs" role="tablist">
         <button class="mood-tab pos on" data-mood="긍정" role="tab"><span class="k">긍정 뉴스</span><b id="cnt-긍정">0</b><small id="pct-긍정">–</small></button>
@@ -642,6 +658,7 @@
 
 <script>
 const ITEMS = {{ (result["items"] if result else [])|tojson }};
+const AI_ON = {{ (ai_on or false)|tojson }};   // OpenAI 키가 있어 AI 판정을 쓰는지
 const cache = {};
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -880,25 +897,31 @@ function donut(pos, neg, matched) {
 }
 
 function renderRight(i, data) {
-  const s = data.analysis.sentiment, kw = data.analysis.keywords;
+  const an = data.analysis, kw = an.keywords;
+  const s = an.sentiment;                          // 기사 분석은 감성사전 판정 (AI는 '이 페이지 기사 분위기'에만 사용)
   const title = data.article.title || ITEMS[i].title, press = pressOf(i);
-  const main = !s.matched ? { lab: "감성 단어 없음", val: "–" }
-             : s.positive >= s.negative ? { lab: "긍정", val: s.positive + "%" } : { lab: "부정", val: s.negative + "%" };
-  const color = !s.matched ? "var(--muted)" : s.positive >= s.negative ? "var(--pos)" : "var(--neg)";
+  const main = !s || !s.matched ? { lab: "감성 단어 없음", val: "–", color: "var(--muted)" }
+             : s.label === "긍정" ? { lab: "긍정", val: s.positive + "%", color: "var(--pos)" }
+             : s.label === "부정" ? { lab: "부정", val: s.negative + "%", color: "var(--neg)" }
+             : { lab: "중립 · 긍정 비율", val: s.positive + "%", color: "var(--neu-ink)" };
 
   let html = (press ? `<div class="sel-press">${esc(press)}</div>` : "") + `<p class="sel-title">${esc(title)}</p>`;
-  html += `<div class="block"><div class="block-title">긍정 · 부정</div><div class="donut-wrap">
-    <div class="donut">${donut(s.positive, s.negative, s.matched)}
-      <div class="center"><span class="lab" style="color:${color}">${main.lab}</span><span class="val">${main.val}</span></div>
+  html += `<div class="block"><div class="block-title">긍정 · 부정 (감성사전)</div><div class="donut-wrap">
+    <div class="donut">${donut(s ? s.positive : 0, s ? s.negative : 0, s && s.matched)}
+      <div class="center"><span class="lab" style="color:${main.color}">${main.lab}</span><span class="val">${main.val}</span></div>
     </div>
     <div class="legend">
-      <span><i style="background:var(--pos)"></i>긍정 <b>${s.positive}%</b></span>
-      <span><i style="background:var(--neg)"></i>부정 <b>${s.negative}%</b></span>
-    </div></div>
-    <div class="chips">
+      <span><i style="background:var(--pos)"></i>긍정 <b>${s ? s.positive : 0}%</b></span>
+      <span><i style="background:var(--neg)"></i>부정 <b>${s ? s.negative : 0}%</b></span>
+    </div></div>`;
+
+  if (s && (s.pos_words?.length || s.neg_words?.length)) {
+    html += `<div class="chips-title">판단 근거 단어</div><div class="chips">
       ${s.pos_words.map(w => `<span class="chip p">${esc(w)}</span>`).join("")}
       ${s.neg_words.map(w => `<span class="chip n">${esc(w)}</span>`).join("")}
-    </div></div>`;
+    </div>`;
+  }
+  html += `</div>`;
 
   const top = kw.slice(0, 8), max = top[0]?.count || 1;
   html += `<div class="block"><div class="block-title">자주 쓰인 단어</div>` +
@@ -949,7 +972,9 @@ document.querySelectorAll(".news .top").forEach(t => {
 });
 
 /* ---------- 긍정/부정/중립 표식 + 오른쪽 '기사 분위기' 패널 ---------- */
-const MOOD = {};                       // i -> {label, positive, negative, matched}
+const MOOD = {};                       // i -> 감성사전 판정 (기사 카드 표식용, 미리보기에서 채움)
+const PAGE_AI = {};                    // i -> AI 판정 (오른쪽 '이 페이지 기사 분위기' 패널 전용, 페이지당 호출 1번)
+let aiState = AI_ON ? "loading" : "off";   // loading | done | failed | off
 const MOOD_CLS = { "긍정": "pos", "부정": "neg", "중립": "neu" };
 let moodTab = "긍정";
 
@@ -960,27 +985,52 @@ function setBadge(card, s) {
   b.className = "mood-badge " + MOOD_CLS[label];
   const pct = !s || !s.matched ? "" : label === "긍정" ? ` ${s.positive}%` : label === "부정" ? ` ${s.negative}%` : "";
   b.textContent = label + pct;
-  b.title = s && s.matched ? `긍정 ${s.positive}% · 부정 ${s.negative}%` : "감성 단어가 거의 없어 중립";
+  b.title = !s || !s.matched ? "감성 단어가 거의 없어 중립" : `감성사전 · 긍정 ${s.positive}% · 부정 ${s.negative}%`;
 }
 
+// 패널에 쓸 판정: AI가 판정한 기사는 AI, 아니면 감성사전 (AI가 꺼졌거나 실패, 답이 빠진 기사)
+const panelMood = i => PAGE_AI[i] || MOOD[i];
+
 function renderMood() {
-  const ids = Object.keys(MOOD).map(Number);
+  const ids = ITEMS.map((_, i) => i).filter(i => panelMood(i));
   const cnt = { "긍정": 0, "부정": 0, "중립": 0 };
-  ids.forEach(i => cnt[MOOD[i].label]++);
+  ids.forEach(i => cnt[panelMood(i).label]++);
   for (const k in cnt) {
     document.getElementById("cnt-" + k).textContent = cnt[k];
     document.getElementById("pct-" + k).textContent = ids.length ? Math.round(cnt[k] / ids.length * 100) + "%" : "–";
   }
   document.getElementById("moodBar").innerHTML = ["긍정", "부정", "중립"].filter(k => cnt[k])
     .map(k => `<span class="${MOOD_CLS[k]}" style="flex-grow:${cnt[k]}" title="${k} ${cnt[k]}건"></span>`).join("");
+  const aiCount = ids.filter(i => PAGE_AI[i]).length, lexCount = ids.length - aiCount;
   document.getElementById("moodProgress").textContent =
-    ids.length < ITEMS.length ? `분석 중 ${ids.length}/${ITEMS.length}` : `${ITEMS.length}건 분석 완료`;
-  const list = ids.filter(i => MOOD[i].label === moodTab).sort((a, b) => a - b);
+    aiState === "loading" ? "AI 판정 중…"
+    : (ids.length < ITEMS.length ? `분석 중 ${ids.length}/${ITEMS.length}` : `${ITEMS.length}건 분석 완료`)
+      + (aiState === "done" && lexCount ? ` · ${lexCount}건 사전 판정` : "")      // AI가 답하지 않은 기사 수
+      + (aiState === "failed" ? " · AI 실패, 사전 판정" : "");
+  const list = ids.filter(i => panelMood(i).label === moodTab);
   document.getElementById("moodList").innerHTML = list.length ? list.map(i => {
-    const s = MOOD[i], it = ITEMS[i];
+    const s = panelMood(i), it = ITEMS[i];
     const pct = s.matched && moodTab !== "중립" ? `${moodTab} ${moodTab === "긍정" ? s.positive : s.negative}% · ` : "";
     return `<li><button data-i="${i}"><div class="t">${esc(it.title)}</div><div class="s">${pct}${esc(pressOf(i))}</div></button></li>`;
   }).join("") : `<li class="empty">${ids.length < ITEMS.length ? "분석 중입니다…" : `${moodTab} 기사가 없습니다`}</li>`;
+}
+
+/* AI 판정: 이 페이지 기사의 제목+요약을 한 번에 보내 판정 (본문은 보내지 않음, 이미 판정한 기사는 서버 캐시) */
+async function loadPageMood() {
+  if (!AI_ON || !ITEMS.length) return;
+  try {
+    const res = await fetch("/api/page-mood", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: ITEMS.map(it => ({ link: it.link || it.originallink, title: it.title, description: it.description })) }),
+    });
+    const data = await res.json();
+    Object.entries(data.results || {}).forEach(([i, r]) => { PAGE_AI[i] = r; });
+    aiState = data.ai_error ? "failed" : "done";
+    if (data.ai_error) document.getElementById("moodSource").title = data.ai_error;
+  } catch (e) {
+    aiState = "failed";
+  }
+  renderMood();
 }
 
 if (document.getElementById("mood")) {
@@ -1002,6 +1052,7 @@ if (document.getElementById("mood")) {
     card.classList.remove("pulse"); void card.offsetWidth; card.classList.add("pulse");
   });
   renderMood();
+  loadPageMood();
 }
 
 /* ---------- 목록 미리보기: 3개씩 나눠서 썸네일 + 언론사 + 긍정/부정 판정을 가져옴 ---------- */

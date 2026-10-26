@@ -7,7 +7,9 @@ import os
 from flask import Flask, jsonify, render_template, request
 
 from components import (
+    AIError,
     ArticleFetchError,
+    ai_analyzer,
     NaverSearchError,
     analyze_article,
     analyze_sentiment,
@@ -56,7 +58,8 @@ def index():
             error = str(e)
     return render_template("index.html", args=args, result=result, error=error,
                            words=words, words_shown=visible_word_count(words),
-                           is_home=is_home, suggestions=SUGGESTIONS, cloud=cloud)
+                           is_home=is_home, suggestions=SUGGESTIONS, cloud=cloud,
+                           ai_on=ai_analyzer.available(), ai_model=ai_analyzer.MODEL)
 
 
 @app.route("/api/news")
@@ -71,26 +74,48 @@ def api_news():
         return jsonify({"error": str(e)}), 502
 
 
+def lexicon_mood(text):
+    """감성사전 판정 (기사 카드 표식·기사 분석용). 감성사전이 없으면 None."""
+    try:
+        s = analyze_sentiment(text)
+    except RuntimeError:  # 감성사전 없음
+        return None
+    return {k: s[k] for k in ("label", "positive", "negative", "matched")}
+
+
+@app.route("/api/page-mood", methods=["POST"])
+def api_page_mood():
+    """오른쪽 '이 페이지 기사 분위기' 패널용 AI 판정 (페이지당 호출 1번).
+
+    요청 JSON: {"items": [{"link", "title", "description"}, ...]}  (검색 결과 순서)
+    본문이 아니라 제목+요약만 보내고, 이미 판정한 기사는 캐시에서 꺼내 토큰을 아낀다.
+    """
+    items = (request.get_json(silent=True) or {}).get("items") or []
+    items = [{k: str(it.get(k, ""))[:1000] for k in ("link", "title", "description")}
+             for it in items[:ai_analyzer.MAX_ITEMS] if isinstance(it, dict)]
+    try:
+        results, sent = ai_analyzer.judge_page(items)
+    except AIError as e:
+        return jsonify({"results": {}, "model": ai_analyzer.MODEL, "ai_error": str(e)})
+    return jsonify({"results": results, "model": ai_analyzer.MODEL, "sent": sent, "ai_error": None})
+
+
 @app.route("/api/preview")
 def api_preview():
-    """목록용 미리보기: 첫 이미지 주소 + 언론사 이름 + 긍정/부정/중립 판정.
+    """목록용 미리보기: 첫 이미지 주소 + 언론사 이름 + 긍정/부정/중립 판정(감성사전).
 
     기사를 가져온 결과는 캐시되므로 나중에 기사를 펼칠 때 다시 요청하지 않는다.
     본문을 못 가져오면 검색 요약(description)으로 판정한다.
     """
+    link, originallink = request.args.get("link", ""), request.args.get("originallink", "")
     try:
-        article = fetch_article(request.args.get("link", ""), request.args.get("originallink", ""))
+        article = fetch_article(link, originallink)
         # 첫 사진이 아이콘처럼 작을 수 있으므로 후보를 몇 개 보내고, 화면에서 크기를 확인해 고른다
         text, press = article["body"], article.get("press")
         images = [m["src"] for m in (article.get("images") or [])[:4]]
     except ArticleFetchError:
         text, images, press = request.args.get("description", ""), [], None
-    try:
-        s = analyze_sentiment(text)
-        sentiment = {k: s[k] for k in ("label", "positive", "negative", "matched")}
-    except RuntimeError:  # 감성사전 없음
-        sentiment = None
-    return jsonify({"images": images, "press": press or None, "sentiment": sentiment})
+    return jsonify({"images": images, "press": press or None, "sentiment": lexicon_mood(text)})
 
 
 @app.route("/api/article")

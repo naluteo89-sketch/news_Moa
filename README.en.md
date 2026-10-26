@@ -3,6 +3,7 @@
 # news_Moa · News Analysis
 
 A web service that collects Naver News search results and instantly shows each article's **positive/negative tone**, **key keywords**, and **key sentences**.
+Per-article analysis is done in Python (sentiment lexicon, morphological analysis); only the **"Page mood"** panel on the right uses an **LLM (OpenAI `gpt-6-luna`)**, with one call per page.
 Unlike existing news analytics services that focus on search volume and mention counts, it is designed to help you **quickly understand "what is actually being said" while reading the articles themselves**.
 
 ![Main screen](docs/screen_main.jpg)
@@ -17,21 +18,31 @@ Unlike existing news analytics services that focus on search volume and mention 
 Instead of only saying "65.9% positive", it shows the **sentiment words behind the decision**, so you can open the article and check right away whether the judgment holds.
 Even in the list, every article carries a positive/negative/neutral badge and a colored strip on the card edge, so the mood of the page is readable just by scrolling.
 
-### 2. Jump straight to the "key sentences" that match the headline
+### 2. Token-frugal LLM use: one call per page
+The LLM is used only for the **"Page mood"** panel on the right. Sending every article body would mean 10 calls and tens of thousands of tokens for a 10-article page; instead this project
+- sends only the **search result title + summary** (up to 300 characters per article), not the body,
+- **batches the whole page into a single call**,
+- asks the model for **only the article number and a positive ratio (integer)**,
+- and stores each verdict so the same article is **never sent again** on other pages or repeat searches.
+
+The positive/negative/neutral label is **decided by code, not by the model** (35–65% positive = neutral). The article card badges (lexicon) use the same rule.
+Even in the list, every article carries a positive/negative/neutral badge and a colored strip on the card edge, so the mood of the page is readable just by scrolling.
+
+### 3. Jump straight to the "key sentences" that match the headline
 Sentences containing the most nouns from the headline and subheadline are ranked. Clicking one **scrolls the article box to that sentence and highlights it in yellow**, so even long articles can be read starting from the core paragraph.
 
-### 3. Reading by "expanding the article body" instead of a blocked original page
+### 4. Reading by "expanding the article body" instead of a blocked original page
 The first plan was to show the original article in a popup (iframe), but a check script showed that many publishers block iframes (7 of 20). The design was changed so the server **extracts the body text, subheadline, and photos and expands them under the card**. Naver News body extraction succeeded 7/7; when extraction fails, the search summary is analyzed instead and the screen says so.
 
-### 4. Stackable filters by word and publisher
+### 5. Stackable filters by word and publisher
 Selecting a frequent word and a publisher together keeps only the matching articles (e.g., "contains ‘AI’ · Yonhap News · 2 articles") and highlights the word. Empty date dividers are hidden, and if nothing matches, a button to clear the filter is shown.
 
-### 5. A screen for both first-time users and power users
+### 6. A screen for both first-time users and power users
 - **5-step tutorial**: real screenshots side by side with explanations; once closed, it stays closed.
 - **Expert mode**: the screen stays simple by default; turning the switch on adds a page-wide keyword map and an article time distribution.
 - **Dark mode**: follows the OS theme and can be switched with a button. Cards and photos get white borders so they don't blend into the dark background.
 
-### 6. A layout that doesn't break at any screen size
+### 7. A layout that doesn't break at any screen size
 - When a side panel is taller than the window, it scrolls with the page and **sticks once its bottom reaches the bottom of the window**, so everything is visible without an inner scrollbar.
 - Images are size-checked first: **icons and logos are skipped**, tall photos don't stretch cards, and small photos aren't upscaled into blur.
 - Article box height, pinned searches, recent searches, theme, and expert mode are remembered in the browser.
@@ -49,7 +60,7 @@ Selecting a frequent word and a publisher together keeps only the matching artic
 
 ### Article List
 - **Thumbnails** taken from the article pages and **publisher names** resolved from the original URL (about 70 outlets; otherwise the page's `og:site_name`)
-- **Positive (blue) / negative (red) / neutral (gray) badges** and a colored strip on the right edge of each card
+- **Positive (blue) / negative (red) / neutral (gray) badges** and a colored strip on the right edge of each card (lexicon verdict)
 - Date dividers such as **"Today · Mon, Oct 26 news"** wherever the date changes
 - Clicking a **frequent word** or a **publisher** on the left shows only the matching articles (can be combined)
 
@@ -57,10 +68,10 @@ Selecting a frequent word and a publisher together keeps only the matching artic
 - Clicking an article expands its **body, subheadline, and photos** below it (most publishers block iframes, so the body is extracted directly)
 - The article box scrolls internally and can be resized from its bottom corner; the size is remembered
 - **Key sentences** on the left: sentences ranked by overlap with the headline and subheadline. Clicking one jumps to it in the body and highlights it
-- **Article analysis** on the right: positive/negative donut chart, the sentiment words used as evidence, frequent words, and a word cloud
+- **Article analysis** on the right: positive/negative donut chart (lexicon), the sentiment words used as evidence, and frequent words
 
 ### Page Overview
-- **Page mood** (top right): number and share of positive/negative/neutral articles. Clicking an article in the list jumps to it and expands it
+- **Page mood** (top right): number and share of positive/negative/neutral articles **as judged by AI (gpt-6-luna)**. Without a key, or if the call fails, the lexicon verdicts are shown instead and the panel says so. Clicking an article in the list jumps to it and expands it
 - **Expert mode** switch: adds "Keywords at a Glance" (page-wide word size map) and "Article Time Distribution" (articles per date/time slot)
 
 ### Interface
@@ -75,13 +86,25 @@ Selecting a frequent word and a publisher together keeps only the matching artic
 
 | Item | Method |
 |---|---|
-| Positive / negative | Sums word polarity (-2 to 2) from the [KNU Korean Sentiment Lexicon](https://github.com/park1200656/KnuSentiLex). Negations such as `좋지 않다` ("not good") and `안 좋다` flip the polarity. 60% or more on one side → positive/negative, otherwise neutral |
+| Page mood (AI) | OpenAI Responses API with the `gpt-6-luna` model. See "How the LLM Is Used" below |
+| Positive / negative (lexicon) | Sums word polarity (-2 to 2) from the [KNU Korean Sentiment Lexicon](https://github.com/park1200656/KnuSentiLex). Negations such as `좋지 않다` ("not good") and `안 좋다` flip the polarity. Same rule as the AI (35–65% positive = neutral). Used for card badges and article analysis, and for the panel when the AI isn't available |
 | Morphological analysis | Uses `kiwipiepy`. Where it can't be installed, falls back automatically to a simple analyzer that strips Korean particles |
 | Key keywords | Noun frequency per article; for the whole page, ranked by how many articles contain the word. The search query itself is excluded |
 | Key sentences | How many headline nouns a sentence contains (60%) + how many subheadline nouns it contains (40%) |
 | Body extraction | The body area (`#dic_area`) for Naver News pages; `trafilatura` or a simple extractor for publisher pages. On failure, the search summary is analyzed and the screen shows a notice |
 
-> AI (OpenAI) analysis is planned as the next step; the current version includes only rule-based Python analysis.
+### How the LLM Is Used (`components/ai_analyzer.py`)
+
+| Item | Design |
+|---|---|
+| Where it's used | Only the "Page mood" panel on the right (card badges and article analysis use the lexicon) |
+| Role (persona) | "A positive/negative checker for news articles". Rates how positive each article is toward its main subject (company, person, policy, event): achievements and praise score high; conflict, accidents, and concerns score low; plain factual reports stay near 50 |
+| Input | A list of `[number] title / summary` lines for the page (up to 300 characters each; the body is never sent) |
+| Output format | JSON Schema in `strict` mode: only `[{i, positive}]` (no reasons or sentences generated) |
+| Calls | **One per page** (up to 100 articles at once) |
+| Label | Decided in code: above 65% positive → positive, below 35% → negative, otherwise neutral. Numbers that weren't requested are dropped; values are clamped to 0–100 |
+| Cache | Each article's ratio is stored in `data/ai_cache.json`; already-judged articles are left out of the next call |
+| Fallback | Without a key, or when a call fails, lexicon verdicts fill the panel and it says so. Articles the model skipped are filled from the lexicon. If the model doesn't support the reasoning option, it retries once without it |
 
 ---
 
@@ -93,7 +116,8 @@ news_Moa/
   components/
     naver_news_search.py  Naver News Search API calls and result cleanup
     article_fetcher.py    Article body, subheadline, photos, publisher name (cached)
-    text_analyzer.py      Sentiment, keywords, key sentences, page keywords
+    ai_analyzer.py        LLM (gpt-6-luna) batch page-mood verdicts, result cache
+    text_analyzer.py      Lexicon sentiment, keywords, key sentences, page keywords
     press.py              Original URL → publisher name
   templates/index.html    UI (HTML, CSS, and JS in one file)
   static/tutorial/        Tutorial images
@@ -105,7 +129,8 @@ news_Moa/
 |---|---|
 | `GET /` | Search page (`query`, `display`, `start`, `sort`) |
 | `GET /api/news` | Search results as JSON |
-| `GET /api/preview` | For the list: thumbnail candidates, publisher name, positive/negative verdict |
+| `GET /api/preview` | For the list: thumbnail candidates, publisher name, positive/negative verdict (lexicon) |
+| `POST /api/page-mood` | AI page-mood verdicts (`items`: list of link, title, summary) |
 | `GET /api/article` | Article body + analysis (paragraphs/sentences, sentiment, keywords, key sentences) |
 
 ---
@@ -122,6 +147,17 @@ python main.py        # http://127.0.0.1:5000
   CLIENT_ID = "Naver Developers Client ID"
   CLIENT_SECRET = "Client Secret"
   ```
+- **OpenAI key** (AI page mood): put it in `C:\keydata\gpt_key.py`. Without it, only the lexicon is used.
+  ```python
+  open_Aikey = "sk-..."
+  ```
+  | Environment variable | Default | Description |
+  |---|---|---|
+  | `OPENAI_API_KEY` | - | Used instead of the key file |
+  | `OPENAI_KEY_FILE` | `C:\keydata\gpt_key.py` | Key file location |
+  | `OPENAI_MODEL` | `gpt-6-luna` | Model used for the verdict |
+  | `NEWS_AI` | `1` | `0` turns the AI verdict off |
+  | `FLASK_DEBUG` | - | Debug mode only when `1` |
 - **Sentiment lexicon**: downloaded automatically to `data/SentiWord_info.json` on first run (publicly released for research; excluded from the repo via `.gitignore`).
 - On Python versions where `kiwipiepy` can't be installed, the simple analyzer is used. You can see which one is active at the bottom right of the article analysis panel ("형태소 분석: simple/kiwipiepy").
 
@@ -151,13 +187,17 @@ Results of checking 20 real API results with `check_article_fetch.py`.
 | Scrollbars appeared inside the side panels | The sticky panels had a max height | Removed the height limit; panels taller than the window stick at the bottom |
 | Panel positions were off after zooming the page to 110% | The zoom factor wasn't applied to the window-height calculation | Read the zoom factor and correct the calculation |
 | The center column went blank when filters matched nothing | No message for zero results | "No matching articles" message + clear button |
-| The API key was in the code | Initial sample code | Read the key from a file outside the repository |
+| The API key was in the code | Initial sample code | Read the key from a file outside the repository (`*_key.py` is also in `.gitignore`) |
+| Article URLs could reach the internal network (SSRF) | Links were requested as-is | Only public IPs allowed, re-checked on every redirect, pages over 5MB rejected |
+| Calling the LLM per article used too many tokens | One call per article + 1,800-character bodies + generated reasons and evidence | LLM only for the page-mood panel; titles + summaries batched into one call; output is numbers and ratios only; per-article cache |
+| The positive/neutral boundary drifted between runs | The label itself was left to the model | The model returns only ratios; code applies the 35–65% rule |
 
 ---
 
 ## Next Steps
 
-- Add OpenAI analysis: compare side by side with the Python results and highlight the sentences behind each judgment
+- A view of articles where the AI and lexicon disagree; a labeled sample for measuring accuracy
+- Log actual token usage (input/output tokens per page)
 - Group articles about the same event; compare tone across publishers
 - Tutorial images for dark mode
 - Review the Naver Search API terms (revised 2026.09, restricting AI use) — required before any commercial use

@@ -162,7 +162,8 @@ def analyze_sentiment(text, lexicon=None):
     else:
         positive = round(pos_score / total * 100, 1)
         negative = round(100 - positive, 1)
-        label = "긍정" if positive >= 60 else "부정" if negative >= 60 else "중립"
+        # AI 판정과 같은 기준: 긍정 35~65%는 중립, 65% 초과 긍정, 35% 미만 부정
+        label = "긍정" if positive > 65 else "부정" if positive < 35 else "중립"
 
     return {
         "label": label,

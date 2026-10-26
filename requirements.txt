@@ -1,5 +1,5 @@
-flask>=3.0
-requests>=2.31
+flask>=3.1.1         # 3.1.1 미만: CVE-2025-47278
+requests>=2.32.4     # 2.32.4 미만: CVE-2024-47081 (.netrc 자격 증명 유출)
 beautifulsoup4>=4.12
 kiwipiepy>=0.18      # 한국어 형태소 분석 (설치 실패해도 간이 분석기로 동작)
 trafilatura>=1.8     # 언론사 원문 본문 추출 (선택, 없으면 간이 추출)

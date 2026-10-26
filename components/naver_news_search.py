@@ -52,6 +52,12 @@ def _clean(text):
     return html.unescape(_TAG_RE.sub("", text or ""))
 
 
+def _http_url(url):
+    """http(s) 주소만 통과 (javascript: 같은 링크가 화면 href에 들어가지 않도록)."""
+    url = url or ""
+    return url if url.lower().startswith(("http://", "https://")) else ""
+
+
 def _format_date(pub_date):
     """'Mon, 26 Oct 2026 09:30:00 +0900' -> '2026-10-26 09:30'"""
     try:
@@ -98,8 +104,8 @@ def search_news(query, display=10, start=1, sort="sim", timeout=10):
         {
             "title": _clean(item.get("title")),
             "description": _clean(item.get("description")),
-            "link": item.get("link", ""),                  # 네이버 뉴스 링크
-            "originallink": item.get("originallink", ""),  # 언론사 원문 링크
+            "link": _http_url(item.get("link")),                  # 네이버 뉴스 링크
+            "originallink": _http_url(item.get("originallink")),  # 언론사 원문 링크
             "press": press_name(item.get("originallink") or item.get("link")),  # 출처 언론사
             "pub_date": _format_date(item.get("pubDate")),
         }

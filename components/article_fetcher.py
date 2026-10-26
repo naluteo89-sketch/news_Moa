@@ -3,8 +3,10 @@
 1순위: 네이버 뉴스 페이지(n.news.naver.com)에서 본문 추출 (구조가 일정해 안정적)
 2순위: 언론사 원문 링크에서 본문 추출 (trafilatura가 있으면 사용, 없으면 간이 추출)
 """
+import ipaddress
 import re
-from urllib.parse import urlparse
+import socket
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -22,6 +24,9 @@ HEADERS = {
     "Accept-Language": "ko-KR,ko;q=0.9",
 }
 MIN_BODY_LEN = 100  # 이보다 짧으면 본문 추출 실패로 보고 다음 방법 시도
+MAX_REDIRECTS = 5
+MAX_HTML_BYTES = 5 * 1024 * 1024  # 이보다 큰 페이지는 받지 않음
+MAX_CACHE = 500                   # 캐시에 보관할 기사 수 (넘으면 오래된 것부터 삭제)
 
 _cache = {}  # url -> 결과 (같은 기사를 다시 요청하지 않도록)
 
@@ -30,9 +35,41 @@ class ArticleFetchError(Exception):
     """본문을 가져오지 못했을 때 발생하는 예외."""
 
 
+def _check_public_url(url):
+    """http(s)이고 공인 IP로만 연결되는 주소인지 확인 (내부망 접근(SSRF) 방지)."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise requests.exceptions.InvalidURL(f"허용되지 않는 주소: {url}")
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, parsed.port or 0, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError) as e:
+        raise requests.exceptions.ConnectionError(f"주소를 찾을 수 없음: {parsed.hostname}") from e
+    for info in infos:
+        if not ipaddress.ip_address(info[4][0].split("%")[0]).is_global:
+            raise requests.exceptions.InvalidURL(f"내부망 주소는 허용되지 않음: {parsed.hostname}")
+
+
 def _get_html(url, timeout=10):
-    resp = requests.get(url, headers=HEADERS, timeout=timeout)
-    resp.raise_for_status()
+    # 리다이렉트를 직접 따라가며 매번 주소를 검사한다 (외부 주소 -> 내부망 리다이렉트 차단)
+    for _ in range(MAX_REDIRECTS + 1):
+        _check_public_url(url)
+        resp = requests.get(url, headers=HEADERS, timeout=timeout, allow_redirects=False, stream=True)
+        if resp.is_redirect:
+            resp.close()
+            url = urljoin(url, resp.headers["Location"])
+            continue
+        break
+    else:
+        raise requests.exceptions.TooManyRedirects(f"리다이렉트가 너무 많음: {url}")
+
+    with resp:
+        resp.raise_for_status()
+        content = b""
+        for chunk in resp.iter_content(64 * 1024):
+            content += chunk
+            if len(content) > MAX_HTML_BYTES:
+                raise requests.exceptions.ContentDecodingError(f"페이지가 너무 큼: {url}")
+        resp._content = content
     # 일부 언론사는 EUC-KR이면서 인코딩을 명시하지 않음
     if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
         resp.encoding = resp.apparent_encoding
@@ -162,6 +199,8 @@ def fetch_article(link, originallink=""):
             source = "original" if url == originallink else "naver"
         if parsed:
             result = {**parsed, "url": final_url, "source": source}
+            if len(_cache) >= MAX_CACHE:
+                _cache.pop(next(iter(_cache)))
             _cache[url] = result
             return result
         errors.append(f"{url}: 본문을 찾지 못함")

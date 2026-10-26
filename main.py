@@ -2,6 +2,8 @@
 
 실행:  python main.py  ->  http://127.0.0.1:5000
 """
+import os
+
 from flask import Flask, jsonify, render_template, request
 
 from components import (
@@ -122,4 +124,5 @@ def api_article():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    # 디버그 모드(웹 디버거로 코드 실행 가능)는 FLASK_DEBUG=1 일 때만 켠다
+    app.run(host="127.0.0.1", port=5000, debug=os.getenv("FLASK_DEBUG") == "1")

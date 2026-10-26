@@ -2,9 +2,13 @@
 __pycache__/
 *.pyc
 
-# key가 들어 있는 파일
-main_backup.py
+# 가상환경
+.venv/
+venv/
+
+# key가 들어 있는 파일 (key는 저장소 밖 C:\keydata\naver.py 에 둔다)
 .env
+*_key.py
 
 # 자동 다운로드되는 감성사전
 data/

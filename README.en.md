@@ -12,6 +12,28 @@ Unlike existing news analytics services that focus on search volume and mention 
 
 ---
 
+## Why This Project
+
+Reading the news, you often run into these problems:
+
+1. **Headlines that don't match the article**: a sensational headline over an ordinary story, or a headline that says little about the content.
+2. **No way to see the tone at a glance**: you have to open each article to know whether it is positive, negative, or a neutral factual report.
+3. **A flood of articles all leaning the same way**: when negative (or positive) stories about one topic appear all at once, readers wonder whether outlets are coordinating their tone, but there is no easy way to check.
+4. **Comments driven by the headline alone**: the topic and content are fine, yet off-target or hostile comments pile up from people who only read the headline.
+
+news_Moa was planned to **help readers judge articles by their content**. If readers check the actual content and tone before the headline, comments born of misunderstanding should decrease.
+
+| Problem | Feature |
+|---|---|
+| Headline vs. content mismatch | **Key sentences**: body sentences ranked by overlap with the headline and subheadline, with match rates (headline %, subheadline %). Few matching sentences is a sign the headline and body diverge. Click to jump to the sentence |
+| Tone not visible at a glance | **Positive (blue) / negative (red) / neutral (gray)** badges and edge strips on every card, plus the words behind the verdict |
+| Same-direction articles all at once | The **Page mood** panel (AI verdict) shows the positive/negative/neutral split at once; **publisher filters**, **date dividers**, and sort-by-date let you compare which outlet published what tone, and when |
+| Comments based only on the headline | Articles expand right on the page so readers see the **body, key sentences, and tone first** |
+
+> It does not decide whether collusion happened. The reader judges; the service quickly gathers the distribution and evidence needed for that judgment.
+
+---
+
 ## What Makes It Different
 
 ### 1. Sentiment analysis that shows its evidence, not just a number

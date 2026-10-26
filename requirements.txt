@@ -1,0 +1,5 @@
+flask>=3.0
+requests>=2.31
+beautifulsoup4>=4.12
+kiwipiepy>=0.18      # 한국어 형태소 분석 (설치 실패해도 간이 분석기로 동작)
+trafilatura>=1.8     # 언론사 원문 본문 추출 (선택, 없으면 간이 추출)
